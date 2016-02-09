@@ -51,11 +51,6 @@ func main() {
 		table.AddRow("PATTERN", "COUNT")
 
 		line, err := reader.ReadBytes('\n')
-		if len(line) == 1 {
-			line = []byte(``)
-		} else {
-			line = line[:len(line)-1]
-		}
 		if err == io.EOF {
 			exitCode = 0
 			break
@@ -65,6 +60,7 @@ func main() {
 			exitCode = 1
 			break
 		}
+		line = line[:len(line)-1]
 
 		if useDistinct {
 			p := fmt.Sprintf("^%s$", regexp.QuoteMeta(string(line)))
