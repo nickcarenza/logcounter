@@ -51,7 +51,11 @@ func main() {
 		table.AddRow("PATTERN", "COUNT")
 
 		line, err := reader.ReadBytes('\n')
-		line = line[:len(line)-1]
+		if len(line) == 1 {
+			line = []byte(``)
+		} else {
+			line = line[:len(line)-1]
+		}
 		if err == io.EOF {
 			exitCode = 0
 			break
