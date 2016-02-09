@@ -38,6 +38,8 @@ func main() {
 
 	var exitCode int
 
+	var totalLinesRead = 0
+
 	for {
 		table := uitable.New()
 		table.AddRow("PATTERN", "COUNT")
@@ -61,6 +63,10 @@ func main() {
 			}
 			table.AddRow(c.p.String(), c.n)
 		}
+
+		totalLinesRead++
+
+		table.AddRow("Total Lines Read:", totalLinesRead)
 
 		fmt.Fprintln(writer, table)
 		writer.Flush()
