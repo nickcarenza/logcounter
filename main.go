@@ -14,16 +14,21 @@ import (
 	"github.com/gosuri/uitable"
 )
 
+type counter struct {
+	p *regexp.Regexp
+	n int
+}
+
 func main() {
 	patternArgs := os.Args[1:]
-	patterns := map[*regexp.Regexp]int{}
+	counters := []counter{}
 	for _, patternArg := range patternArgs {
 		r, err := regexp.Compile(patternArg)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
 		}
-		patterns[r] = 0
+		counters = append(counters, counter{r, 0})
 	}
 
 	writer := uilive.New()
@@ -48,12 +53,13 @@ func main() {
 			break
 		}
 
-		for r, i := range patterns {
-			indexMatches := r.FindAllIndex(line, -1)
+		for i, _ := range counters {
+			c := &counters[i]
+			indexMatches := c.p.FindAllIndex(line, -1)
 			if indexMatches != nil {
-				patterns[r] = i + len(indexMatches)
+				c.n = c.n + len(indexMatches)
 			}
-			table.AddRow(r.String(), patterns[r])
+			table.AddRow(c.p.String(), c.n)
 		}
 
 		fmt.Fprintln(writer, table)
