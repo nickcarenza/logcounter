@@ -31,6 +31,12 @@ func main() {
 		counters = append(counters, counter{r, 0})
 	}
 
+	// If no parameters are given, count each distinct line
+	var useDistinct = false
+	if len(counters) == 0 {
+		useDistinct = true
+	}
+
 	writer := uilive.New()
 	reader := bufio.NewReader(os.Stdin)
 
@@ -45,6 +51,7 @@ func main() {
 		table.AddRow("PATTERN", "COUNT")
 
 		line, err := reader.ReadBytes('\n')
+		line = line[:len(line)-1]
 		if err == io.EOF {
 			exitCode = 0
 			break
@@ -53,6 +60,27 @@ func main() {
 			log.Println(err)
 			exitCode = 1
 			break
+		}
+
+		if useDistinct {
+			p := fmt.Sprintf("^%s$", regexp.QuoteMeta(string(line)))
+			var patternExists = false
+			for _, c := range counters {
+				if c.p.String() == p {
+					patternExists = true
+					break
+				}
+			}
+			if !patternExists {
+				r, err := regexp.Compile(p)
+				if err != nil {
+					log.Println(err)
+					exitCode = 1
+					break
+				}
+				c := counter{r, 0}
+				counters = append(counters, c)
+			}
 		}
 
 		for i, _ := range counters {
