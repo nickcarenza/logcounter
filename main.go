@@ -3,12 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -41,6 +42,11 @@ func (c *Counter) Incr(val int64) {
 // Return the counter's current value
 func (c *Counter) Value() int64 {
 	return atomic.LoadInt64((*int64)(c))
+}
+
+// Reset the counter's value
+func (c *Counter) Reset() {
+	atomic.StoreInt64((*int64)(c), 0)
 }
 
 // A RateCounter is a thread-safe counter which returns the number of times
@@ -76,6 +82,10 @@ func (r *RateCounter) Rate() int64 {
 	return r.counter.Value()
 }
 
+func (r *RateCounter) Reset() {
+	r.counter.Reset()
+}
+
 func (r *RateCounter) String() string {
 	return strconv.FormatInt(r.counter.Value(), 10) + "/" + r.interval.String()
 }
@@ -97,7 +107,22 @@ func (c *LogCounter) Incr(delta int64) {
 	c.rhr.Incr(delta)
 }
 
+func (c *LogCounter) Reset() {
+	c.c.Reset()
+	c.rsec.Reset()
+	c.rmin.Reset()
+	c.rhr.Reset()
+}
+
 func main() {
+	// USR1 Will change mode to passthough to behave just like tail -f, counts and rates continue in this mode
+	var passthroughChan = make(chan os.Signal, 1)
+	signal.Notify(passthroughChan, syscall.SIGUSR1)
+
+	// USR2 Will reset the counters
+	var resetChan = make(chan os.Signal, 1)
+	signal.Notify(resetChan, syscall.SIGUSR2)
+
 	patternArgs := os.Args[1:]
 	logCounters := []*LogCounter{}
 	for _, patternArg := range patternArgs {
@@ -123,30 +148,51 @@ func main() {
 	repaintTicker := time.NewTicker(repaintInterval)
 
 	writer := uilive.New()
-	reader := bufio.NewReader(os.Stdin)
+	// reader := bufio.NewReader(os.Stdin)
+	scanner := bufio.NewScanner(os.Stdin)
+	lineChan := make(chan []byte)
+
+	go func(scanner *bufio.Scanner, lineChan chan []byte) {
+		for scanner.Scan() {
+			var scannerBytes = scanner.Bytes()
+			var line = make([]byte, len(scannerBytes))
+			copy(line, scannerBytes)
+			lineChan <- line
+		}
+		close(lineChan)
+	}(scanner, lineChan)
 
 	writer.Start()
-
-	var exitCode int
+	defer writer.Stop()
 
 	var totalLinesRead = 0
 
+	var passthrough = false
+
+	defer repaint(writer, logCounters, totalLinesRead)
+
 	for {
 		select {
+		case <-resetChan:
+			for _, cnt := range logCounters {
+				cnt.Reset()
+				totalLinesRead = 0
+				repaint(writer, logCounters, totalLinesRead)
+			}
+		case <-passthroughChan:
+			passthrough = !passthrough
 		case <-repaintTicker.C:
-			repaint(writer, logCounters, totalLinesRead)
-		default:
-			line, err := reader.ReadBytes('\n')
-			if err == io.EOF {
-				exitCode = 0
-				break
+			if !passthrough {
+				repaint(writer, logCounters, totalLinesRead)
 			}
-			if err != nil {
-				log.Println(err)
-				exitCode = 1
-				break
+		case line, ok := <-lineChan:
+			if !ok {
+				return
 			}
-			line = line[:len(line)-1]
+
+			if passthrough {
+				log.Println(string(line))
+			}
 
 			if useDistinct {
 				p := fmt.Sprintf("^%s$", regexp.QuoteMeta(string(line)))
@@ -158,12 +204,7 @@ func main() {
 					}
 				}
 				if !patternExists {
-					r, err := regexp.Compile(p)
-					if err != nil {
-						log.Println(err)
-						exitCode = 1
-						break
-					}
+					r := regexp.MustCompile(p)
 					c := NewLogCounter(r)
 					logCounters = append(logCounters, c)
 				}
@@ -179,10 +220,6 @@ func main() {
 			totalLinesRead++
 		}
 	}
-
-	writer.Stop()
-
-	os.Exit(exitCode)
 }
 
 func repaint(w *uilive.Writer, logCounters []*LogCounter, totalLinesRead int) {

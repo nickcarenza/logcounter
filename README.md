@@ -10,3 +10,5 @@ error   7
 info    10   
 debug   0    
 ```
+
+If you want to capture stderr as well as stdout: 2>&1
